@@ -196,6 +196,11 @@ chmod 600 "${CONFIG_FILE}"
 # -------------------------------------------------------
 # WireGuard starten
 # -------------------------------------------------------
+if ip link show "${INTERFACE}" &>/dev/null; then
+    log_warning "Interface ${INTERFACE} bestond nog van een vorige run; wordt eerst opgeruimd."
+    wg-quick down "${CONFIG_FILE}" 2>/dev/null || ip link delete "${INTERFACE}" 2>/dev/null || true
+fi
+
 log_info "WireGuard interface ${INTERFACE} starten..."
 export WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
 wg-quick up "${CONFIG_FILE}" || log_fatal "WireGuard starten mislukt."
@@ -217,9 +222,9 @@ cleanup() {
     kill "${WATCHDOG_PID}" 2>/dev/null || true
     teardown_port_forwards
     wg-quick down "${CONFIG_FILE}" 2>/dev/null || true
-    exit 0
 }
-trap cleanup SIGTERM SIGINT
+trap cleanup EXIT
+trap 'exit 0' SIGTERM SIGINT
 
 log_info "Container actief. Wachten op signaal..."
 wait "${WATCHDOG_PID}"
