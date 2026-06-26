@@ -87,6 +87,74 @@ ensure_persistent_keepalive() {
 }
 
 # -------------------------------------------------------
+# Portforwarding naar interne LAN-devices (DNAT)
+# PORT_FORWARDS="luisterpoort:doel_ip:doel_poort[/tcp|udp],..."
+# bv. PORT_FORWARDS="8080:192.168.1.50:80,2222:192.168.1.60:22/tcp"
+# -------------------------------------------------------
+ensure_chain() {
+    local table="$1" chain="$2"
+    iptables -t "${table}" -N "${chain}" 2>/dev/null || true
+    iptables -t "${table}" -F "${chain}"
+}
+
+setup_port_forwards() {
+    [[ -z "${PORT_FORWARDS}" ]] && return 0
+
+    log_info "Portforwarding instellen: ${PORT_FORWARDS}"
+    echo 1 > /proc/sys/net/ipv4/ip_forward
+
+    ensure_chain nat CSWG_DNAT
+    ensure_chain nat CSWG_MASQ
+    ensure_chain filter CSWG_FWD
+
+    iptables -t nat -C PREROUTING -j CSWG_DNAT 2>/dev/null || iptables -t nat -A PREROUTING -j CSWG_DNAT
+    iptables -t nat -C POSTROUTING -j CSWG_MASQ 2>/dev/null || iptables -t nat -A POSTROUTING -j CSWG_MASQ
+    iptables -C FORWARD -j CSWG_FWD 2>/dev/null || iptables -I FORWARD -j CSWG_FWD
+
+    local entries entry proto listen_port dest dest_ip dest_port
+    IFS=',' read -ra entries <<< "${PORT_FORWARDS}"
+    for entry in "${entries[@]}"; do
+        entry="${entry// /}"
+        [[ -z "${entry}" ]] && continue
+
+        proto="tcp"
+        if [[ "${entry}" == */udp ]]; then
+            proto="udp"; entry="${entry%/udp}"
+        elif [[ "${entry}" == */tcp ]]; then
+            entry="${entry%/tcp}"
+        fi
+
+        listen_port="${entry%%:*}"
+        dest="${entry#*:}"
+        dest_ip="${dest%%:*}"
+        dest_port="${dest#*:}"
+
+        if [[ -z "${listen_port}" || -z "${dest_ip}" || -z "${dest_port}" || "${dest_ip}" == "${dest}" ]]; then
+            log_warning "Ongeldige PORT_FORWARDS-entry overgeslagen: ${entry}"
+            continue
+        fi
+
+        log_info "Portforward: ${INTERFACE}:${listen_port}/${proto} -> ${dest_ip}:${dest_port}"
+        iptables -t nat -A CSWG_DNAT -i "${INTERFACE}" -p "${proto}" --dport "${listen_port}" -j DNAT --to-destination "${dest_ip}:${dest_port}"
+        iptables -t nat -A CSWG_MASQ -p "${proto}" -d "${dest_ip}" --dport "${dest_port}" -j MASQUERADE
+        iptables -A CSWG_FWD -i "${INTERFACE}" -p "${proto}" -d "${dest_ip}" --dport "${dest_port}" -j ACCEPT
+    done
+}
+
+teardown_port_forwards() {
+    [[ -z "${PORT_FORWARDS}" ]] && return 0
+    iptables -t nat -D PREROUTING -j CSWG_DNAT 2>/dev/null || true
+    iptables -t nat -D POSTROUTING -j CSWG_MASQ 2>/dev/null || true
+    iptables -D FORWARD -j CSWG_FWD 2>/dev/null || true
+    iptables -t nat -F CSWG_DNAT 2>/dev/null || true
+    iptables -t nat -F CSWG_MASQ 2>/dev/null || true
+    iptables -F CSWG_FWD 2>/dev/null || true
+    iptables -t nat -X CSWG_DNAT 2>/dev/null || true
+    iptables -t nat -X CSWG_MASQ 2>/dev/null || true
+    iptables -X CSWG_FWD 2>/dev/null || true
+}
+
+# -------------------------------------------------------
 # Validatie
 # -------------------------------------------------------
 if [[ -z "${MANUAL_WIREGUARD_CONFIG}" && -z "${ENROLLMENT_TOKEN}" ]]; then
@@ -133,6 +201,8 @@ export WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
 wg-quick up "${CONFIG_FILE}" || log_fatal "WireGuard starten mislukt."
 log_info "WireGuard actief."
 
+setup_port_forwards
+
 # -------------------------------------------------------
 # Watchdog starten
 # -------------------------------------------------------
@@ -145,6 +215,7 @@ WATCHDOG_PID=$!
 cleanup() {
     log_info "Afsluiten..."
     kill "${WATCHDOG_PID}" 2>/dev/null || true
+    teardown_port_forwards
     wg-quick down "${CONFIG_FILE}" 2>/dev/null || true
     exit 0
 }

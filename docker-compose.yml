@@ -20,6 +20,9 @@ services:
       - PERSISTENT_KEEPALIVE=25
       # Optioneel: handmatige WireGuard config (portal wordt dan niet bevraagd)
       # - MANUAL_WIREGUARD_CONFIG=
+      # Optioneel: portforwards naar interne LAN-devices, bv. voor de nginx proxy op de portal-kant
+      # Formaat: luisterpoort:doel_ip:doel_poort[/tcp|udp], kommagescheiden voor meerdere
+      # - PORT_FORWARDS=8080:192.168.1.50:80,2222:192.168.1.60:22/tcp
 
 volumes:
   wireguard-data:
