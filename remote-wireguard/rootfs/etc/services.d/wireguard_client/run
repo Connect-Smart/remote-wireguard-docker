@@ -1,0 +1,18 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Home Assistant Third Party Add-on: WireGuard Client
+# Start de WireGuard interface op basis van /etc/wireguard/cswg0.conf
+# ==============================================================================
+
+set -o pipefail
+
+INTERFACE="cswg0"
+
+s6-svc -O /run/service/wireguard_client
+
+bashio::log.info "WireGuard Client starten op interface ${INTERFACE}"
+
+# Gebruik userspace implementatie indien nodig
+export WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
+
+exec wg-quick up "${INTERFACE}"

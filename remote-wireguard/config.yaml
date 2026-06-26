@@ -1,0 +1,47 @@
+---
+name: Connect-Smart WG Client
+version: 1.5.33
+slug: cs_wg_client
+description: Connect-Smart WireGuard client for Remote Portal
+url: https://github.com/Connect-Smart/remote-wireguard/
+arch:
+  - aarch64
+  - amd64
+  - armv7
+apparmor: true
+init: false
+host_network: true
+hassio_role: manager
+hassio_api: true
+homeassistant_api: true
+privileged:
+  - NET_ADMIN
+  - SYS_MODULE
+devices:
+  - /dev/net/tun
+map:
+  - type: config   # toegang tot /data/options.json
+    read_only: false
+  - type: backup
+    read_only: false
+options:
+  enrollment_token: ""
+  advanced:
+    portal_url: "https://remote.connect-smart.nl"
+    verify_ssl: true
+    backup_enabled: true
+    backup_interval_hours: 24
+    backup_retain: 3
+    manual_wireguard_config: ""
+schema:
+  enrollment_token: str?
+  advanced:
+    portal_url: str?
+    verify_ssl: bool?
+    backup_enabled: bool?
+    backup_interval_hours: int?
+    backup_retain: int?
+    manual_wireguard_config: str?
+  log_level: list(trace|debug|info|notice|warning|error|critical)?
+  monitor_target: str?
+  monitor_interval: int?

@@ -1,0 +1,30 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Home Assistant Community Add-on: WireGuard Client
+# Shows current WireGuard status
+# ==============================================================================
+INTERFACE="cswg0"
+DEFAULT_INTERVAL="30"
+
+get_monitor_interval() {
+    local interval="${DEFAULT_INTERVAL}"
+    if bashio::config.has_value "monitor_interval"; then
+        interval="$(bashio::config "monitor_interval")"
+    fi
+    if ! [[ "${interval}" =~ ^[0-9]+$ ]] || [[ "${interval}" -lt 5 ]]; then
+        bashio::log.warning "monitor_interval ongeldig (${interval}); standaard ${DEFAULT_INTERVAL}s wordt gebruikt."
+        interval="${DEFAULT_INTERVAL}"
+    fi
+    printf '%s' "${interval}"
+}
+
+MONITOR_INTERVAL="$(get_monitor_interval)"
+
+while true; do
+    sleep "${MONITOR_INTERVAL}"
+    if wg show "${INTERFACE}" | grep -q "latest handshake"; then
+        bashio::log.info "WireGuard ${INTERFACE}: verbonden"
+    else
+        bashio::log.warning "WireGuard ${INTERFACE}: geen actieve verbinding"
+    fi
+done

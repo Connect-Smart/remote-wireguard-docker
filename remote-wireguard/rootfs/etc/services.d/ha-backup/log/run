@@ -1,0 +1,7 @@
+#!/usr/bin/execlineb -P
+# ==============================================================================
+# Home Assistant Third Party Add-on: WireGuard Client
+# Logs the output of the ha-backup service
+# ==============================================================================
+s6-setuidgid root
+s6-log -b -- t /var/log/ha-backup

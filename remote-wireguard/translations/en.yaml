@@ -1,0 +1,23 @@
+---
+configuration:
+  enrollment_token:
+    name: "Enrollment Token"
+    description: "The token you copied from the Remote Portal"
+  advanced:
+    name: "Advanced Settings"
+    description: "Advanced configuration options"
+    portal_url:
+      name: "Portal URL"
+      description: "Base URL of the Remote Portal (default: https://remote.connect-smart.nl)"
+    verify_ssl:
+      name: "Verify SSL Certificate"
+      description: "Verify the SSL certificate of the portal (set to false for self-signed certificates)"
+  log_level:
+    name: "Log Level"
+    description: "Set the desired log level (trace, debug, info, notice, warning, error, critical)"
+  monitor_target:
+    name: "Monitor Target"
+    description: "IP address to ping for connection monitoring (default: 10.8.0.1)"
+  monitor_interval:
+    name: "Monitor Interval"
+    description: "Interval in seconds between connection checks (default: 60)"

@@ -1,0 +1,50 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Home Assistant Third Party Add-on: WireGuard Client
+# HA Backup service - runs daily (configurable interval)
+# ==============================================================================
+
+DEFAULT_INTERVAL_HOURS="24"
+
+get_backup_interval() {
+    local interval="${DEFAULT_INTERVAL_HOURS}"
+    if bashio::config.has_value "advanced.backup_interval_hours"; then
+        interval="$(bashio::config "advanced.backup_interval_hours")"
+    elif bashio::config.has_value "backup_interval_hours"; then
+        interval="$(bashio::config "backup_interval_hours")"
+    fi
+    if ! [[ "${interval}" =~ ^[0-9]+$ ]] || [[ "${interval}" -lt 1 ]]; then
+        bashio::log.warning "backup_interval_hours ongeldig (${interval}); standaard ${DEFAULT_INTERVAL_HOURS}u wordt gebruikt."
+        interval="${DEFAULT_INTERVAL_HOURS}"
+    fi
+    printf '%s' "${interval}"
+}
+
+# Controleer of backup ingeschakeld is
+BACKUP_ENABLED="true"
+if bashio::config.has_value "advanced.backup_enabled"; then
+    BACKUP_ENABLED=$(bashio::config "advanced.backup_enabled")
+elif bashio::config.has_value "backup_enabled"; then
+    BACKUP_ENABLED=$(bashio::config "backup_enabled")
+fi
+
+if [[ "${BACKUP_ENABLED,,}" != "true" ]]; then
+    bashio::log.info "HA Backup: uitgeschakeld via configuratie"
+    exit 0
+fi
+
+INTERVAL_HOURS=$(get_backup_interval)
+INTERVAL_SECONDS=$(( INTERVAL_HOURS * 3600 ))
+
+bashio::log.info "HA Backup service gestart (interval: ${INTERVAL_HOURS} uur)"
+
+SCRIPT="/etc/services.d/ha-backup/create_backup.sh"
+
+# Wacht 5 minuten na start voordat eerste backup
+sleep 300
+
+while true; do
+    ${SCRIPT} || bashio::log.warning "HA Backup: script afgesloten met fout, volgende poging over ${INTERVAL_HOURS} uur"
+    bashio::log.info "HA Backup: volgende backup over ${INTERVAL_HOURS} uur"
+    sleep "${INTERVAL_SECONDS}"
+done

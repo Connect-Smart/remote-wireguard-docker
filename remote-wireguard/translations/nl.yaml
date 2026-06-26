@@ -1,0 +1,23 @@
+---
+configuration:
+  enrollment_token:
+    name: "Installatietoken"
+    description: "Het token dat je uit de Remote Portal hebt gekopieerd"
+  advanced:
+    name: "Geavanceerde instellingen"
+    description: "Geavanceerde configuratie-opties"
+    portal_url:
+      name: "Portal URL"
+      description: "Basis-URL van de Remote Portal (standaard: https://remote.connect-smart.nl)"
+    verify_ssl:
+      name: "SSL-certificaat verifiëren"
+      description: "Controleer het SSL-certificaat van de portal (zet op false bij zelfondertekende certificaten)"
+  log_level:
+    name: "Logniveau"
+    description: "Stel het gewenste logniveau in (trace, debug, info, notice, warning, error, critical)"
+  monitor_target:
+    name: "Monitor doeladres"
+    description: "IP-adres om te pingen voor verbindingscontrole (standaard: 10.8.0.1)"
+  monitor_interval:
+    name: "Monitor interval"
+    description: "Interval in seconden tussen verbindingscontroles (standaard: 60)"

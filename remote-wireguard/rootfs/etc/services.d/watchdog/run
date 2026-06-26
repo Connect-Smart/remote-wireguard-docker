@@ -1,0 +1,259 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Home Assistant Third Party Add-on: WireGuard Client
+# Watchdog that pings the remote gateway and restarts WireGuard if unreachable.
+# ==============================================================================
+
+set -o pipefail
+
+INTERFACE="cswg0"
+DEFAULT_TARGET="10.8.0.1"
+DEFAULT_INTERVAL="30"
+SETTINGS_PATH="/data/settings.json"
+CONFIG_DIR="/etc/wireguard"
+CONFIG_FILE="${CONFIG_DIR}/${INTERFACE}.conf"
+TEMP_FILE="${CONFIG_DIR}/${INTERFACE}.watchdog.conf"
+export WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
+
+PORTAL_URL=""
+ENROLLMENT_TOKEN=""
+VERIFY_SSL="true"
+WIREGUARD_CONFIG=""
+CONFIG_UPDATED="false"
+
+normalize_bool() {
+    local value="${1:-true}"
+    value="${value,,}"
+    case "${value}" in
+        1 | true | yes | on) echo "true" ;;
+        *) echo "false" ;;
+    esac
+}
+
+get_config_value() {
+    local key="${1}"
+    local default_value="${2}"
+    local value="${default_value}"
+    if bashio::config.has_value "${key}"; then
+        value="$(bashio::config "${key}")"
+    fi
+    printf '%s' "${value}"
+}
+
+load_settings_file() {
+    local settings_json
+    local value
+    if [[ ! -f "${SETTINGS_PATH}" ]]; then
+        return
+    fi
+    if ! settings_json=$(cat "${SETTINGS_PATH}"); then
+        bashio::log.warning "Watchdog: kan ${SETTINGS_PATH} niet lezen."
+        return
+    fi
+    value=$(echo "${settings_json}" | jq -r '.portal_url // empty')
+    if [[ -n "${value}" ]]; then
+        PORTAL_URL="${value}"
+    fi
+    value=$(echo "${settings_json}" | jq -r '.enrollment_token // empty')
+    if [[ -n "${value}" ]]; then
+        ENROLLMENT_TOKEN="${value}"
+    fi
+    value=$(echo "${settings_json}" | jq -r '.verify_ssl // empty')
+    if [[ -n "${value}" && "${value}" != "null" ]]; then
+        VERIFY_SSL="${value}"
+    fi
+}
+
+load_addon_options() {
+    if bashio::config.has_value "advanced.portal_url"; then
+        PORTAL_URL=$(bashio::config "advanced.portal_url")
+    elif bashio::config.has_value "portal_url"; then
+        PORTAL_URL=$(bashio::config "portal_url")
+    fi
+    if bashio::config.has_value "enrollment_token"; then
+        ENROLLMENT_TOKEN=$(bashio::config "enrollment_token")
+    fi
+    if bashio::config.has_value "advanced.verify_ssl"; then
+        VERIFY_SSL=$(bashio::config "advanced.verify_ssl")
+    elif bashio::config.has_value "verify_ssl"; then
+        VERIFY_SSL=$(bashio::config "verify_ssl")
+    fi
+}
+
+ensure_inputs() {
+    PORTAL_URL=$(echo "${PORTAL_URL}" | xargs)
+    ENROLLMENT_TOKEN=$(echo "${ENROLLMENT_TOKEN}" | xargs)
+    VERIFY_SSL=$(normalize_bool "${VERIFY_SSL}")
+
+    if [[ -z "${PORTAL_URL}" || -z "${ENROLLMENT_TOKEN}" ]]; then
+        bashio::log.warning "Watchdog: portal_url/enrollment_token ontbreken; configuratie kan niet worden vernieuwd."
+        return 1
+    fi
+    if [[ "${PORTAL_URL}" != http://* && "${PORTAL_URL}" != https://* ]]; then
+        PORTAL_URL="https://${PORTAL_URL}"
+    fi
+    PORTAL_URL="${PORTAL_URL%/}"
+    if [[ "${VERIFY_SSL}" != "true" ]]; then
+        VERIFY_SSL="false"
+    else
+        VERIFY_SSL="true"
+    fi
+    return 0
+}
+
+fetch_remote_config() {
+    local response
+    local endpoint="${PORTAL_URL}/api/public/clients/${ENROLLMENT_TOKEN}/wireguard-config"
+    local -a curl_opts=(
+        "--silent"
+        "--show-error"
+        "--fail"
+        "--location"
+        "--connect-timeout" "10"
+        "--max-time" "30"
+        "--header" "Accept: application/json"
+        "--user-agent" "connect-smart-wireguard-addon/1.1"
+    )
+    if [[ "${VERIFY_SSL}" != "true" ]]; then
+        curl_opts+=("--insecure")
+    fi
+
+    if ! response=$(curl "${curl_opts[@]}" "${endpoint}"); then
+        bashio::log.warning "Watchdog: ophalen van WireGuard-configuratie mislukt."
+        return 1
+    fi
+
+    WIREGUARD_CONFIG=$(echo "${response}" | jq -r '.wireguard // empty')
+    if [[ -z "${WIREGUARD_CONFIG}" || "${WIREGUARD_CONFIG}" == "null" ]]; then
+        local portal_error
+        portal_error=$(echo "${response}" | jq -r '.error // empty')
+        if [[ -n "${portal_error}" ]]; then
+            bashio::log.warning "Watchdog: portal gaf fout terug: ${portal_error}"
+        else
+            bashio::log.warning "Watchdog: geen geldige WireGuard-config ontvangen."
+        fi
+        return 1
+    fi
+    return 0
+}
+
+write_config_file() {
+    CONFIG_UPDATED="false"
+    mkdir -p "${CONFIG_DIR}"
+    printf '%s\n' "${WIREGUARD_CONFIG}" > "${TEMP_FILE}"
+
+    if [[ ! -f "${CONFIG_FILE}" ]]; then
+        mv "${TEMP_FILE}" "${CONFIG_FILE}"
+        CONFIG_UPDATED="true"
+        bashio::log.info "Watchdog: nieuwe WireGuard-configuratie opgeslagen."
+        return 0
+    fi
+
+    if ! cmp -s "${TEMP_FILE}" "${CONFIG_FILE}"; then
+        mv "${TEMP_FILE}" "${CONFIG_FILE}"
+        CONFIG_UPDATED="true"
+        bashio::log.info "Watchdog: gewijzigde WireGuard-config toe­gepast op schijf."
+    else
+        rm -f "${TEMP_FILE}"
+        bashio::log.info "Watchdog: configuratie ongewijzigd."
+    fi
+    return 0
+}
+
+apply_config_to_interface() {
+    if [[ ! -f "${CONFIG_FILE}" ]]; then
+        bashio::log.warning "Watchdog: geen wg-configuratiebestand gevonden."
+        return 1
+    fi
+    if wg syncconf "${INTERFACE}" <(wg-quick strip "${CONFIG_FILE}"); then
+        bashio::log.info "Watchdog: configuratie gesynchroniseerd zonder WireGuard te herstarten."
+        return 0
+    fi
+    bashio::log.warning "Watchdog: synchroniseren via wg syncconf mislukt."
+    return 1
+}
+
+refresh_wireguard_config() {
+    PORTAL_URL=""
+    ENROLLMENT_TOKEN=""
+    VERIFY_SSL="true"
+    WIREGUARD_CONFIG=""
+
+    load_settings_file
+    load_addon_options
+    if ! ensure_inputs; then
+        return 1
+    fi
+    if ! fetch_remote_config; then
+        return 1
+    fi
+    if ! write_config_file; then
+        return 1
+    fi
+    if [[ "${CONFIG_UPDATED}" == "true" ]]; then
+        apply_config_to_interface
+    else
+        bashio::log.info "Watchdog: huidige WireGuard-instellingen blijven actief."
+    fi
+    return 0
+}
+
+TARGET="$(get_config_value "monitor_target" "${DEFAULT_TARGET}")"
+TARGET="$(echo "${TARGET}" | xargs)"
+if [[ -z "${TARGET}" ]]; then
+    TARGET="${DEFAULT_TARGET}"
+fi
+
+INTERVAL="$(get_config_value "monitor_interval" "${DEFAULT_INTERVAL}")"
+if ! [[ "${INTERVAL}" =~ ^[0-9]+$ ]] || [[ "${INTERVAL}" -lt 5 ]]; then
+    bashio::log.warning "monitor_interval ongeldig (${INTERVAL}); standaard ${DEFAULT_INTERVAL}s wordt gebruikt."
+    INTERVAL="${DEFAULT_INTERVAL}"
+fi
+
+bashio::log.info "WireGuard-watchdog gestart (doel ${TARGET}, interval ${INTERVAL}s)."
+
+# Wacht eerst zodat WireGuard tijd heeft de handshake op te bouwen
+sleep "${INTERVAL}"
+
+FAILURE_COUNT=0
+
+ping_target() {
+    local count="${1:-1}"
+    local success="false"
+    local attempt
+    for ((attempt = 1; attempt <= count; attempt++)); do
+        if ping -I "${INTERFACE}" -c 1 -W 2 "${TARGET}" >/dev/null 2>&1; then
+            success="true"
+            break
+        fi
+        sleep 1
+    done
+    [[ "${success}" == "true" ]]
+}
+
+wait_before_next() {
+    sleep "${INTERVAL}"
+}
+
+handle_connectivity_loss() {
+    bashio::log.warning "Watchdog: ${TARGET} reageert niet; WireGuard-configuratie wordt opnieuw opgehaald."
+    if ! refresh_wireguard_config; then
+        bashio::log.warning "Watchdog: configuratie kon niet worden vernieuwd."
+    fi
+}
+
+while true; do
+    if ping_target 1; then
+        FAILURE_COUNT=0
+        wait_before_next
+        continue
+    fi
+
+    FAILURE_COUNT=$((FAILURE_COUNT + 1))
+    handle_connectivity_loss
+    if [[ "${FAILURE_COUNT}" -ge 5 ]]; then
+        bashio::log.error "Watchdog: ${FAILURE_COUNT} opeenvolgende pingpogingen mislukt; add-on wordt gestopt zodat Supervisor opnieuw kan starten."
+        exit 1
+    fi
+    wait_before_next
+done
