@@ -1,0 +1,25 @@
+services:
+  wireguard:
+    build: .
+    container_name: cs-wireguard
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    devices:
+      - /dev/net/tun
+    volumes:
+      - wireguard-data:/data
+    environment:
+      - PORTAL_URL=https://remote.connect-smart.nl
+      - ENROLLMENT_TOKEN=your-token-here
+      - VERIFY_SSL=true
+      - MONITOR_TARGET=10.8.0.1
+      - MONITOR_INTERVAL=30
+      - PERSISTENT_KEEPALIVE=25
+      # Optioneel: handmatige WireGuard config (portal wordt dan niet bevraagd)
+      # - MANUAL_WIREGUARD_CONFIG=
+
+volumes:
+  wireguard-data:
