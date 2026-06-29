@@ -93,8 +93,8 @@ ensure_persistent_keepalive() {
 # -------------------------------------------------------
 ensure_chain() {
     local table="$1" chain="$2"
-    iptables -t "${table}" -N "${chain}" 2>/dev/null || true
-    iptables -t "${table}" -F "${chain}"
+    iptables-legacy -t "${table}" -N "${chain}" 2>/dev/null || true
+    iptables-legacy -t "${table}" -F "${chain}"
 }
 
 setup_port_forwards() {
@@ -107,9 +107,9 @@ setup_port_forwards() {
     ensure_chain nat CSWG_MASQ
     ensure_chain filter CSWG_FWD
 
-    iptables -t nat -C PREROUTING -j CSWG_DNAT 2>/dev/null || iptables -t nat -A PREROUTING -j CSWG_DNAT
-    iptables -t nat -C POSTROUTING -j CSWG_MASQ 2>/dev/null || iptables -t nat -A POSTROUTING -j CSWG_MASQ
-    iptables -C FORWARD -j CSWG_FWD 2>/dev/null || iptables -I FORWARD -j CSWG_FWD
+    iptables-legacy -t nat -C PREROUTING -j CSWG_DNAT 2>/dev/null || iptables-legacy -t nat -A PREROUTING -j CSWG_DNAT
+    iptables-legacy -t nat -C POSTROUTING -j CSWG_MASQ 2>/dev/null || iptables-legacy -t nat -A POSTROUTING -j CSWG_MASQ
+    iptables-legacy -C FORWARD -j CSWG_FWD 2>/dev/null || iptables-legacy -I FORWARD -j CSWG_FWD
 
     local entries entry proto listen_port dest dest_ip dest_port
     IFS=',' read -ra entries <<< "${PORT_FORWARDS}"
@@ -135,23 +135,23 @@ setup_port_forwards() {
         fi
 
         log_info "Portforward: ${INTERFACE}:${listen_port}/${proto} -> ${dest_ip}:${dest_port}"
-        iptables -t nat -A CSWG_DNAT -i "${INTERFACE}" -p "${proto}" --dport "${listen_port}" -j DNAT --to-destination "${dest_ip}:${dest_port}"
-        iptables -t nat -A CSWG_MASQ -p "${proto}" -d "${dest_ip}" --dport "${dest_port}" -j MASQUERADE
-        iptables -A CSWG_FWD -i "${INTERFACE}" -p "${proto}" -d "${dest_ip}" --dport "${dest_port}" -j ACCEPT
+        iptables-legacy -t nat -A CSWG_DNAT -i "${INTERFACE}" -p "${proto}" --dport "${listen_port}" -j DNAT --to-destination "${dest_ip}:${dest_port}"
+        iptables-legacy -t nat -A CSWG_MASQ -p "${proto}" -d "${dest_ip}" --dport "${dest_port}" -j MASQUERADE
+        iptables-legacy -A CSWG_FWD -i "${INTERFACE}" -p "${proto}" -d "${dest_ip}" --dport "${dest_port}" -j ACCEPT
     done
 }
 
 teardown_port_forwards() {
     [[ -z "${PORT_FORWARDS}" ]] && return 0
-    iptables -t nat -D PREROUTING -j CSWG_DNAT 2>/dev/null || true
-    iptables -t nat -D POSTROUTING -j CSWG_MASQ 2>/dev/null || true
-    iptables -D FORWARD -j CSWG_FWD 2>/dev/null || true
-    iptables -t nat -F CSWG_DNAT 2>/dev/null || true
-    iptables -t nat -F CSWG_MASQ 2>/dev/null || true
-    iptables -F CSWG_FWD 2>/dev/null || true
-    iptables -t nat -X CSWG_DNAT 2>/dev/null || true
-    iptables -t nat -X CSWG_MASQ 2>/dev/null || true
-    iptables -X CSWG_FWD 2>/dev/null || true
+    iptables-legacy -t nat -D PREROUTING -j CSWG_DNAT 2>/dev/null || true
+    iptables-legacy -t nat -D POSTROUTING -j CSWG_MASQ 2>/dev/null || true
+    iptables-legacy -D FORWARD -j CSWG_FWD 2>/dev/null || true
+    iptables-legacy -t nat -F CSWG_DNAT 2>/dev/null || true
+    iptables-legacy -t nat -F CSWG_MASQ 2>/dev/null || true
+    iptables-legacy -F CSWG_FWD 2>/dev/null || true
+    iptables-legacy -t nat -X CSWG_DNAT 2>/dev/null || true
+    iptables-legacy -t nat -X CSWG_MASQ 2>/dev/null || true
+    iptables-legacy -X CSWG_FWD 2>/dev/null || true
 }
 
 # -------------------------------------------------------

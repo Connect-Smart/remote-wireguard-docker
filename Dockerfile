@@ -5,6 +5,7 @@ RUN apk add --no-cache \
     curl \
     ip6tables \
     iptables \
+    iptables-legacy \
     jq \
     openresolv \
     wireguard-tools
